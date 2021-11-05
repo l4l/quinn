@@ -314,7 +314,7 @@ impl Future for ConnectionDriver {
 /// May be cloned to obtain another handle to the same connection.
 ///
 /// [`Connection::close()`]: Connection::close
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Connection(ConnectionRef);
 
 impl Connection {
@@ -511,12 +511,6 @@ impl Connection {
             .inner
             .crypto_session()
             .export_keying_material(output, label, context)
-    }
-}
-
-impl Clone for Connection {
-    fn clone(&self) -> Self {
-        Connection(self.0.clone())
     }
 }
 
