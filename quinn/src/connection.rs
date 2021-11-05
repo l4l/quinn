@@ -245,7 +245,7 @@ pub struct NewConnection {
 impl NewConnection {
     fn new(conn: ConnectionRef) -> Self {
         Self {
-            connection: Connection(conn.clone()),
+            connection: Connection { conn: conn.clone() },
             uni_streams: IncomingUniStreams(conn.clone()),
             bi_streams: IncomingBiStreams(conn.clone()),
             datagrams: Datagrams(conn),
@@ -311,7 +311,9 @@ impl Future for ConnectionDriver {
 ///
 /// [`Connection::close()`]: Connection::close
 #[derive(Debug, Clone)]
-pub struct Connection(ConnectionRef);
+pub struct Connection {
+    conn: ConnectionRef,
+}
 
 impl Connection {
     /// Initiate a new outgoing unidirectional stream.
@@ -321,7 +323,7 @@ impl Connection {
     /// actually used.
     pub fn open_uni(&self) -> OpenUni {
         OpenUni {
-            conn: self.0.clone(),
+            conn: self.conn.clone(),
             state: broadcast::State::default(),
         }
     }
@@ -333,7 +335,7 @@ impl Connection {
     /// actually used.
     pub fn open_bi(&self) -> OpenBi {
         OpenBi {
-            conn: self.0.clone(),
+            conn: self.conn.clone(),
             state: broadcast::State::default(),
         }
     }
@@ -354,7 +356,7 @@ impl Connection {
     /// [`finish`]: crate::SendStream::finish
     /// [`SendStream`]: crate::SendStream
     pub fn close(&self, error_code: VarInt, reason: &[u8]) {
-        let conn = &mut *self.0.lock("close");
+        let conn = &mut *self.conn.lock("close");
         conn.close(error_code, Bytes::copy_from_slice(reason));
     }
 
@@ -364,7 +366,7 @@ impl Connection {
     /// and `data` must both fit inside a single QUIC packet and be smaller than the maximum
     /// dictated by the peer.
     pub fn send_datagram(&self, data: Bytes) -> Result<(), SendDatagramError> {
-        let conn = &mut *self.0.lock("send_datagram");
+        let conn = &mut *self.conn.lock("send_datagram");
         if let Some(ref x) = conn.error {
             return Err(SendDatagramError::ConnectionLost(x.clone()));
         }
@@ -394,7 +396,7 @@ impl Connection {
     ///
     /// [`send_datagram()`]: Connection::send_datagram
     pub fn max_datagram_size(&self) -> Option<usize> {
-        self.0
+        self.conn
             .lock("max_datagram_size")
             .inner
             .datagrams()
@@ -406,7 +408,7 @@ impl Connection {
     /// If `ServerConfig::migration` is `true`, clients may change addresses at will, e.g. when
     /// switching to a cellular internet connection.
     pub fn remote_address(&self) -> SocketAddr {
-        self.0.lock("remote_address").inner.remote_address()
+        self.conn.lock("remote_address").inner.remote_address()
     }
 
     /// The local IP address which was used when the peer established
@@ -424,22 +426,22 @@ impl Connection {
     /// On all non-supported platforms the local IP address will not be available,
     /// and the method will return `None`.
     pub fn local_ip(&self) -> Option<IpAddr> {
-        self.0.lock("local_ip").inner.local_ip()
+        self.conn.lock("local_ip").inner.local_ip()
     }
 
     /// Current best estimate of this connection's latency (round-trip-time)
     pub fn rtt(&self) -> Duration {
-        self.0.lock("rtt").inner.rtt()
+        self.conn.lock("rtt").inner.rtt()
     }
 
     /// Returns connection statistics
     pub fn stats(&self) -> ConnectionStats {
-        self.0.lock("stats").inner.stats()
+        self.conn.lock("stats").inner.stats()
     }
 
     /// Current state of the congestion control algorithm, for debugging purposes
     pub fn congestion_state(&self) -> Box<dyn Controller> {
-        self.0
+        self.conn
             .lock("congestion_state")
             .inner
             .congestion_state()
@@ -454,7 +456,7 @@ impl Connection {
     ///
     /// [`Connection::handshake_data()`]: crate::Connecting::handshake_data
     pub fn handshake_data(&self) -> Option<Box<dyn Any>> {
-        self.0
+        self.conn
             .lock("handshake_data")
             .inner
             .crypto_session()
@@ -467,7 +469,7 @@ impl Connection {
     /// [`Session`](proto::crypto::Session). For the default `rustls` session, the return value can
     /// be [`downcast`](Box::downcast) to a <code>Vec<[rustls::Certificate](rustls::Certificate)></code>
     pub fn peer_identity(&self) -> Option<Box<dyn Any>> {
-        self.0
+        self.conn
             .lock("peer_identity")
             .inner
             .crypto_session()
@@ -479,13 +481,16 @@ impl Connection {
     /// Peer addresses and connection IDs can change, but this value will remain
     /// fixed for the lifetime of the connection.
     pub fn stable_id(&self) -> usize {
-        self.0.stable_id()
+        self.conn.stable_id()
     }
 
     // Update traffic keys spontaneously for testing purposes.
     #[doc(hidden)]
     pub fn force_key_update(&self) {
-        self.0.lock("force_key_update").inner.initiate_key_update()
+        self.conn
+            .lock("force_key_update")
+            .inner
+            .initiate_key_update()
     }
 
     /// Derive keying material from this connection's TLS session secrets.
@@ -502,7 +507,7 @@ impl Connection {
         label: &[u8],
         context: &[u8],
     ) -> Result<(), proto::crypto::ExportKeyingMaterialError> {
-        self.0
+        self.conn
             .lock("export_keying_material")
             .inner
             .crypto_session()
